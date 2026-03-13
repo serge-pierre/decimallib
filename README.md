@@ -182,7 +182,7 @@ git commit -m "Initial commit — decimallib v0.1.0"
 
 # Create an empty repository on GitHub (no README, no .gitignore),
 # then push:
-git remote add origin https://github.com/<your-username>/decimallib.git
+git remote add origin github.com/<your-username>/decimallib.git
 git branch -M main
 git push -u origin main
 ```
