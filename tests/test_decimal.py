@@ -475,3 +475,131 @@ class TestStringRepresentations:
         # repr gives DecimalNumber('1.23') — eval it back
         reconstructed = eval(repr(original), {'DecimalNumber': DecimalNumber})
         assert reconstructed == original
+
+
+# ---------------------------------------------------------------------------
+# Unary operations and copy
+# ---------------------------------------------------------------------------
+
+class TestUnary:
+
+    def test_copy_is_independent(self):
+        a = dn('1.23')
+        b = a.copy()
+        assert b == a
+        assert b is not a
+        assert b.digits is not a.digits
+
+    def test_neg(self):
+        assert (-dn('1.23')).get()  == '-1.23'
+        assert (-dn('-1.23')).get() == '1.23'
+        assert (-dn('0')).get()     == '0'
+
+    def test_abs(self):
+        assert abs(dn('1.23')).get()  == '1.23'
+        assert abs(dn('-1.23')).get() == '1.23'
+        assert abs(dn('0')).get()     == '0'
+
+    def test_pos(self):
+        a = dn('1.23')
+        b = +a
+        assert b == a
+        assert b is not a
+
+    def test_neg_does_not_modify_original(self):
+        a = dn('5')
+        _ = -a
+        assert a.get() == '5'
+
+
+# ---------------------------------------------------------------------------
+# __pow__ — non-negative integer exponents
+# ---------------------------------------------------------------------------
+
+class TestPow:
+
+    @pytest.mark.parametrize("s, n, expected", [
+        ('2',    0,  '1'),
+        ('0',    0,  '1'),     # 0**0 = 1, consistent with Python
+        ('5',    1,  '5'),
+        ('2',    3,  '8'),
+        ('3',    4,  '81'),
+        ('1.5',  2,  '2.25'),
+        ('1.5',  3,  '3.375'),
+        ('0.1',  3,  '0.001'),
+        ('10',   5,  '100000'),
+        ('-2',   3,  '-8'),    # odd exponent: negative result
+        ('-2',   4,  '16'),    # even exponent: positive result
+        ('2',   10,  '1024'),
+        ('0',    5,  '0'),
+    ])
+    def test_pow_exact(self, s, n, expected):
+        assert (dn(s) ** n).get() == expected
+
+    def test_pow_large_exponent(self):
+        # 2**64 = 18446744073709551616
+        assert (dn('2') ** 64).get() == '18446744073709551616'
+
+    def test_pow_scale_accumulates(self):
+        # (1.5)**2 = 2.25 → scale = 2*2 = 4 before normalization → 2 after
+        result = dn('1.5') ** 2
+        assert result.scale == 2
+
+    def test_pow_negative_raises(self):
+        with pytest.raises(ValueError):
+            dn('2') ** -3
+
+    def test_pow_float_exponent_raises(self):
+        with pytest.raises(TypeError):
+            dn('2') ** 0.5
+
+    def test_pow_non_integer_raises(self):
+        with pytest.raises(TypeError):
+            dn('2') ** '3'
+
+
+# ---------------------------------------------------------------------------
+# power() — all integer exponents with scale and mode
+# ---------------------------------------------------------------------------
+
+class TestPowerMethod:
+
+    @pytest.mark.parametrize("s, n, scale, mode, expected", [
+        ('2',   3,  0, ROUND_HALF_EVEN, '8'),
+        ('1.5', 2,  2, ROUND_HALF_EVEN, '2.25'),
+        ('2',  10,  0, ROUND_HALF_EVEN, '1024'),
+        # Positive exponent with quantize
+        ('1.23', 3, 2, ROUND_HALF_EVEN, '1.86'),   # 1.860867 → 1.86
+    ])
+    def test_positive_exponent(self, s, n, scale, mode, expected):
+        assert dn(s).power(n, scale, mode).get() == expected
+
+    @pytest.mark.parametrize("s, n, scale, mode, expected", [
+        ('2',   -1, 4, ROUND_HALF_EVEN, '0.5'),
+        ('2',   -2, 4, ROUND_HALF_EVEN, '0.25'),
+        ('2',   -3, 6, ROUND_HALF_EVEN, '0.125'),
+        ('3',   -1, 6, ROUND_HALF_EVEN, '0.333333'),
+        ('10',  -2, 4, ROUND_HALF_EVEN, '0.01'),
+        ('-2',  -1, 4, ROUND_HALF_EVEN, '-0.5'),
+    ])
+    def test_negative_exponent(self, s, n, scale, mode, expected):
+        assert dn(s).power(n, scale, mode).get() == expected
+
+    def test_zero_power_zero(self):
+        assert dn('0').power(0, 0, ROUND_HALF_EVEN).get() == '1'
+
+    def test_zero_negative_exponent_raises(self):
+        with pytest.raises(ZeroDivisionError):
+            dn('0').power(-1, 4, ROUND_HALF_EVEN)
+
+    def test_invalid_scale_raises(self):
+        with pytest.raises(ValueError):
+            dn('2').power(3, -1, ROUND_HALF_EVEN)
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError):
+            dn('2').power(3, 2, 'ROUND_INVALID')
+
+    def test_float_exponent_raises(self):
+        with pytest.raises(TypeError):
+            dn('2').power(0.5, 4, ROUND_HALF_EVEN)

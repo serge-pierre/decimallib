@@ -520,6 +520,122 @@ class DecimalNumber:
         return self._compare(other) >= 0
 
     # ------------------------------------------------------------------
+    # Unary operations and copy
+    # ------------------------------------------------------------------
+
+    def copy(self):
+        """Returns an independent copy of this DecimalNumber."""
+        return DecimalNumber._from_parts(self.sign, self.digits, self.scale)
+
+    def __neg__(self):
+        """Returns a new DecimalNumber equal to -self."""
+        return DecimalNumber._from_parts(-self.sign, self.digits, self.scale)
+
+    def __abs__(self):
+        """Returns a new DecimalNumber equal to |self|."""
+        return DecimalNumber._from_parts(abs(self.sign), self.digits, self.scale)
+
+    def __pos__(self):
+        """Returns a copy of self (unary +)."""
+        return self.copy()
+
+    # ------------------------------------------------------------------
+    # Exponentiation
+    # ------------------------------------------------------------------
+
+    def __pow__(self, exponent):
+        """
+        Returns a new DecimalNumber equal to self ** exponent.
+
+        Only non-negative integer exponents are supported.
+        For negative exponents, use power(n, scale, mode) instead.
+
+        Args:
+            exponent (int) : non-negative integer
+
+        Returns:
+            DecimalNumber  — exact result, scale = self.scale * exponent
+
+        Raises:
+            TypeError  : if exponent is not an integer
+            ValueError : if exponent is negative
+        """
+        if not isinstance(exponent, int):
+            raise TypeError(
+                f"L'exposant doit être un entier, reçu : {type(exponent).__name__}. "
+                f"Pour un exposant négatif, utilisez power(n, scale, mode)."
+            )
+        if exponent < 0:
+            raise ValueError(
+                f"__pow__ n'accepte pas les exposants négatifs. "
+                f"Utilisez power({exponent}, scale, mode) à la place."
+            )
+
+        # x**0 = 1 for any x (including 0, consistent with Python)
+        if exponent == 0:
+            return DecimalNumber._from_parts(1, [1], 0)
+
+        # x**1 = x
+        if exponent == 1:
+            return self.copy()
+
+        # Fast exponentiation (square-and-multiply)
+        # Avoids O(n) multiplications for large exponents
+        result = DecimalNumber._from_parts(1, [1], 0)  # neutral element: 1
+        base   = self.copy()
+        n      = exponent
+
+        while n > 0:
+            if n % 2 == 1:
+                result = result * base
+            base = base * base
+            n //= 2
+
+        return result
+
+    def power(self, exponent, scale, mode):
+        """
+        Returns a new DecimalNumber equal to self ** exponent,
+        rounded to `scale` decimal places using `mode`.
+
+        Supports negative integer exponents via:
+            self ** -n  =  1 / (self ** n)
+
+        Also accepts positive exponents (delegates to __pow__ then quantizes).
+
+        Args:
+            exponent (int) : any integer (positive, zero, or negative)
+            scale    (int) : number of fractional digits in the result, >= 0
+            mode     (str) : one of the ROUND_* constants from rounding.py
+
+        Returns:
+            DecimalNumber
+
+        Raises:
+            ZeroDivisionError : if self is zero and exponent is negative
+            TypeError         : if exponent is not an integer
+            ValueError        : if scale < 0 or mode is unknown
+        """
+        if not isinstance(exponent, int):
+            raise TypeError(f"L'exposant doit être un entier, reçu : {type(exponent).__name__}")
+        if not isinstance(scale, int) or scale < 0:
+            raise ValueError(f"scale doit être un entier >= 0, reçu : {scale}")
+        if mode not in _ALL_MODES:
+            raise ValueError(f"Mode d'arrondi inconnu : {mode}")
+
+        if exponent >= 0:
+            result = self ** exponent
+            result.quantize(scale, mode)
+            return result
+        else:
+            # self ** -n = 1 / self**n
+            if self.sign == 0:
+                raise ZeroDivisionError("0 ne peut pas être élevé à une puissance négative")
+            positive_pow = self ** (-exponent)
+            one = DecimalNumber._from_parts(1, [1], 0)
+            return one.divide(positive_pow, scale, mode)
+
+    # ------------------------------------------------------------------
     # String representations
     # ------------------------------------------------------------------
 
